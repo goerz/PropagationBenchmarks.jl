@@ -6,7 +6,7 @@
 #       extension: .jl
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.16.4
+#       jupytext_version: 1.15.2
 #   kernelspec:
 #     display_name: Julia 1.11.1
 #     language: julia
@@ -23,12 +23,17 @@ import DataFrames
 using Plots
 using QuantumControl: run_or_load
 
+import PropagationBenchmarks
 using PropagationBenchmarks: run_benchmarks, params, Vary
 using PropagationBenchmarks: calibrate_cheby
 using PropagationBenchmarks: generate_trial_data, generate_timing_data
 using PropagationBenchmarks: BenchmarkSeries
 using PropagationBenchmarks: Units, plot_runtimes, plot_scaling, plot_overhead
 
+using AppleAccelerate #  no-op on non-Apple
+PropagationBenchmarks.info()
+
+# +
 projectdir(path...) = joinpath(@__DIR__, path...)
 datadir(path...) = projectdir("data", "A01_01_Cheby_InPlace_Dense", path...)
 mkpath(datadir())
@@ -38,7 +43,7 @@ EXACT_SOLUTIONS_CACHE = Dict();
 CALIBRATION_CACHE = Dict();
 
 QuantumPropagators.disable_timings();
-
+# -
 
 FORCE = (get(ENV, "FORCE", "0") in ["true", "1"])
 

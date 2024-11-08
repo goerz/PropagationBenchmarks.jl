@@ -1,4 +1,4 @@
-.PHONY: help ipynb jupyter-lab clean distclean
+.PHONY: help ipynb devrepl jupyter-lab clean distclean
 
 .DEFAULT_GOAL := help
 
@@ -12,7 +12,7 @@ help:   ## Show this help
 	@grep -E '^([a-zA-Z_-]+):.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "%-20s %s\n", $$1, $$2}'
 
 %.ipynb : | %.jl
-	JULIA_NUM_THREADS=1 jupytext --to notebook --execute "$(*).jl"
+	JULIA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 time jupytext --to notebook --execute "$(*).jl"
 	jupyter trust "$(*).ipynb"
 
 Manifest.toml: Project.toml
@@ -21,8 +21,12 @@ Manifest.toml: Project.toml
 
 ipynb: Manifest.toml $(NOTEBOOKFILES)  ## Create all missing .ipynb files
 
+devrepl: Manifest.toml
+	JULIA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 $(JULIA) --project=.
+
 jupyter-lab: Manifest.toml  ## Run a Jupyter lab server
-	JULIA_NUM_THREADS=1 jupyter lab --no-browser
+	JULIA_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 jupyter lab --no-browser
+
 
 clean: ## Remove generated files
 	rm -f $(NOTEBOOKFILES)
