@@ -6,7 +6,7 @@
 #       extension: .jl
 #       format_name: light
 #       format_version: '1.5'
-#       jupytext_version: 1.15.2
+#       jupytext_version: 1.16.4
 #   kernelspec:
 #     display_name: Julia 1.11.1
 #     language: julia
@@ -25,10 +25,12 @@ using QuantumControl: run_or_load
 
 import PropagationBenchmarks
 using PropagationBenchmarks: run_benchmarks, params, Vary
+using PropagationBenchmarks: generate_exact_solution
 using PropagationBenchmarks: calibrate_cheby
 using PropagationBenchmarks: generate_trial_data, generate_timing_data
 using PropagationBenchmarks: BenchmarkSeries
-using PropagationBenchmarks: Units, plot_runtimes, plot_scaling, plot_overhead
+using PropagationBenchmarks:
+    Units, plot_prec_runtimes, plot_size_runtime, plot_scaling, plot_overhead
 
 using AppleAccelerate #  no-op on non-Apple
 PropagationBenchmarks.info()
@@ -47,7 +49,59 @@ QuantumPropagators.disable_timings();
 
 FORCE = (get(ENV, "FORCE", "0") in ["true", "1"])
 
-# ## Runtime
+# ## Runtime over System Size
+
+SYSTEM_PARAMETERS = params(
+    # see arguments of `random_dynamic_generator`
+    N = Vary(100, 200, 300, 400, 500, 600, 700, 800, 900, 1000),
+    spectral_envelope = 1.0,
+    exact_spectral_envelope = true,
+    number_of_controls = 1,
+    density = 1,
+    hermitian = true,
+    dt = 1.0,
+    nt = 1001,
+);
+
+BENCHMARK_PARAMETERS = params(method = Cheby, cheby_coeffs_limit = Vary(1e-15, 1e-8));
+
+size_trial_data = run_or_load(datadir("benchmark_size_trials.jld2"); force = FORCE) do
+    run_benchmarks(;
+        system_parameters = SYSTEM_PARAMETERS,
+        benchmark_parameters = BENCHMARK_PARAMETERS,
+        generate_benchmark = generate_trial_data,
+        systems_cache = SYSTEMS_CACHE,
+    )
+end;
+
+# +
+QuantumPropagators.enable_timings();
+
+size_timing_data = run_or_load(datadir("benchmark_size_timing.jld2"); force = FORCE) do
+    run_benchmarks(;
+        system_parameters = SYSTEM_PARAMETERS,
+        benchmark_parameters = BENCHMARK_PARAMETERS,
+        generate_benchmark = generate_timing_data,
+        systems_cache = SYSTEMS_CACHE,
+    )
+end;
+
+QuantumPropagators.disable_timings();
+# -
+
+size_runtime_data = merge(size_trial_data, size_timing_data)
+
+plot_size_runtime(size_runtime_data) do row
+    if row[:cheby_coeffs_limit] == 1e-15
+        return :high
+    elseif row[:cheby_coeffs_limit] == 1e-8
+        return :low
+    else
+        error("Unexpected `cheby_coeffs_limit`")
+    end
+end
+
+# ## Runtime over Precision
 
 PRECISION = Vary(1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-15);
 
@@ -67,10 +121,11 @@ EXACT_SOLUTION_PARAMETERS = params(method = Cheby, cheby_coeffs_limit = 1e-15,);
 
 BENCHMARK_PARAMETERS = params(method = Cheby, precision = PRECISION,);
 
-trial_data = run_or_load(datadir("benchmark_trials.jld2"); force = FORCE) do
+prec_trial_data = run_or_load(datadir("benchmark_prec_trials.jld2"); force = FORCE) do
     run_benchmarks(;
         system_parameters = SYSTEM_PARAMETERS,
         exact_solution_parameters = EXACT_SOLUTION_PARAMETERS,
+        generate_exact_solution = generate_exact_solution,
         benchmark_parameters = BENCHMARK_PARAMETERS,
         generate_benchmark = generate_trial_data,
         calibrate = calibrate_cheby,  # translate `precision` into `cheby_coeffs_limit`
@@ -84,10 +139,11 @@ end;
 # +
 QuantumPropagators.enable_timings();
 
-timing_data = run_or_load(datadir("benchmark_timings.jld2"); force = FORCE) do
+prec_timing_data = run_or_load(datadir("benchmark_prec_timings.jld2"); force = FORCE) do
     run_benchmarks(;
         system_parameters = SYSTEM_PARAMETERS,
         exact_solution_parameters = EXACT_SOLUTION_PARAMETERS,
+        generate_exact_solution = generate_exact_solution,
         benchmark_parameters = BENCHMARK_PARAMETERS,
         generate_benchmark = generate_timing_data,
         calibrate = calibrate_cheby,
@@ -101,10 +157,10 @@ end;
 QuantumPropagators.disable_timings();
 # -
 
-runtime_data = merge(trial_data, timing_data)
+prec_runtime_data = merge(prec_trial_data, prec_timing_data)
 
-plot_runtimes(
-    runtime_data,
+plot_prec_runtimes(
+    prec_runtime_data,
     [1000, 100, 10];
     units = Dict(1000 => :s, 100 => :ms, 10 => :ms),
     size = (600, 600),
@@ -113,7 +169,7 @@ plot_runtimes(
 )
 
 
-# ## Scaling
+# ## Scaling with Spectral Envelope
 
 # For larger system sizes, the runtime of the propagation should be dominated by matrix-vector products. The number of matrix_vector products should depend only on the desired precision and the spectral envelope of the system (for `dt=1.0`; or alternatively, on `dt` if the spectral envelope is kept constant). We analyze here how the number of matrix-vector products scales with the spectral envelope for the default "high" precision (machine precision), and for lower precision (roughly half machine precision).
 #
@@ -134,15 +190,12 @@ scaling_data = run_or_load(datadir("benchmark_scaling.jld2"); force = FORCE) do
             dt = 1.0,
             nt = 1001,
         ),
-        exact_solution_parameters = EXACT_SOLUTION_PARAMETERS,
-        generate_exact_solution = (args...; kwargs...) -> nothing,
         benchmark_parameters = params(
             method = Cheby,
             cheby_coeffs_limit = Vary(1e-15, 1e-8)
         ),
         generate_benchmark = generate_timing_data,
         systems_cache = SYSTEMS_CACHE,
-        exact_solutions_cache = EXACT_SOLUTIONS_CACHE,
     )
 end;
 
@@ -167,7 +220,7 @@ plot_scaling(
 end
 
 
-# ## Overhead
+# ## Overhead with System Size
 
 
 # For sufficiently large systems, the propagation should be dominated by matrix-vector products. Here, we analyze the "overhead", i.e., the percentage of the runtime _not_ spent in matrix-vector products, for smaller systems.
@@ -187,8 +240,6 @@ overhead_data = run_or_load(datadir("benchmark_overhead.jld2"); force = FORCE) d
             dt = 1.0,
             nt = 1001,
         ),
-        exact_solution_parameters = EXACT_SOLUTION_PARAMETERS,
-        generate_exact_solution = (args...; kwargs...) -> nothing,
         benchmark_parameters = params(method = Cheby),
         generate_benchmark = generate_timing_data,
         systems_cache = SYSTEMS_CACHE,
@@ -197,6 +248,8 @@ end
 
 QuantumPropagators.disable_timings();
 # -
+
+overhead_data
 
 plot_overhead(
     overhead_data;

@@ -42,10 +42,10 @@ end
 ```julia
 collected_benchmarks = run_benchmarks(;
     system_parameters,
-    exact_solution_parameters,
+    exact_solution_parameters=OrderedDict{Symbol,Any}(),
     benchmark_parameters,
     generate_system=generate_system,
-    generate_exact_solution=generate_exact_solution,
+    generate_exact_solution=do_not_use_exact_solution,
     generate_benchmark,
     calibrate=no_calibrate,
     systems_cache=Dict(),
@@ -75,9 +75,11 @@ runs a series of benchmarks in 4 stages:
 
         generate_exact_solution(system; exact_solution_parameters...)
 
-    to obtain  an exact solution.
-
-    The default [`generate_exact_solution`] assumes `system` to be a
+    to obtain  an exact solution. This is then used in the subsequent
+    calibration and benchmarking steps. By default, this is a function
+    returning `nothing`, for runs that do not require calibration. If
+    `calibrate` is given, `PropagationBenchmarks.generate_exact_solution` is
+    usually a suitable choice. This function assumes `system` to be a
     [`BenchmarkSystem`](@ref) instance and runs `propagate` with the
     `exact_solution_parameters` as keyword arguments.
 
@@ -131,8 +133,8 @@ function run_benchmarks(;
     system_parameters::OrderedDict,
     systems_cache = Dict(),
     generate_system::Function = generate_system,
-    exact_solution_parameters::OrderedDict,
-    generate_exact_solution::Function = generate_exact_solution,
+    exact_solution_parameters::OrderedDict = OrderedDict{Symbol,Any}(),
+    generate_exact_solution::Function = do_not_use_exact_solution,
     exact_solutions_cache = Dict(),
     benchmark_parameters::OrderedDict,
     generate_benchmark::Function,
@@ -155,33 +157,37 @@ function run_benchmarks(;
     end
     systems = [systems_cache[params] for params ∈ system_parameters_expansion]
 
-    title = "exact solutions:  "
-    @assert length(expand_variations(exact_solution_parameters)) == 1
-    solution_cache_keys = []  # keys for all systems
-    missing_solution_cache_keys = []  # keys for systems not in cache
-    systems_with_missing_solution = Any[]
-    for (i, system) ∈ enumerate(systems)
-        p = system_parameters_expansion[i]
-        solution_cache_key = OrderedDict(p..., exact_solution_parameters...)
-        push!(solution_cache_keys, solution_cache_key)
-        if !haskey(exact_solutions_cache, solution_cache_key)
-            push!(missing_solution_cache_keys, solution_cache_key)
-            push!(systems_with_missing_solution, system)
+    if generate_exact_solution ≢ do_not_use_exact_solution
+        title = "exact solutions:  "
+        @assert length(expand_variations(exact_solution_parameters)) == 1
+        solution_cache_keys = []  # keys for all systems
+        missing_solution_cache_keys = []  # keys for systems not in cache
+        systems_with_missing_solution = Any[]
+        for (i, system) ∈ enumerate(systems)
+            p = system_parameters_expansion[i]
+            solution_cache_key = OrderedDict(p..., exact_solution_parameters...)
+            push!(solution_cache_keys, solution_cache_key)
+            if !haskey(exact_solutions_cache, solution_cache_key)
+                push!(missing_solution_cache_keys, solution_cache_key)
+                push!(systems_with_missing_solution, system)
+            end
         end
+        new_solutions = _map(
+            generate_exact_solution;
+            title,
+            as_args = [[s,] for s ∈ systems_with_missing_solution],
+            exact_solution_parameters...
+        )
+        for (solution_cache_key, solution) ∈ zip(missing_solution_cache_keys, new_solutions)
+            exact_solutions_cache[solution_cache_key] = solution
+        end
+        exact_solutions = [
+            exact_solutions_cache[solution_cache_key] for
+            solution_cache_key ∈ solution_cache_keys
+        ]
+    else
+        exact_solutions = [nothing for _ in systems]
     end
-    new_solutions = _map(
-        generate_exact_solution;
-        title,
-        as_args = [[s,] for s ∈ systems_with_missing_solution],
-        exact_solution_parameters...
-    )
-    for (solution_cache_key, solution) ∈ zip(missing_solution_cache_keys, new_solutions)
-        exact_solutions_cache[solution_cache_key] = solution
-    end
-    exact_solutions = [
-        exact_solutions_cache[solution_cache_key] for
-        solution_cache_key ∈ solution_cache_keys
-    ]
 
     title = "calibrate:        "
     benchmark_parameters_expansion = expand_variations(benchmark_parameters)

@@ -40,12 +40,11 @@ struct BenchmarkSeries{XT,YT}
 end
 
 
-function plot_runtimes(
+function plot_prec_runtimes(
     collected_data,
     N_vals;
     csv = nothing,
     units = Dict(),
-    x = :precision,
     kwargs...
 )
     plot_data = Dict(
@@ -80,7 +79,7 @@ function plot_runtimes(
             y_median;
             yerror = (y_mindist, y_maxdist),
             label = "N=$N",
-            xlabel = (N == N_vals[end]) ? string(x) : "",
+            xlabel = (N == N_vals[end]) ? "precision" : "",
             ylabel = "runtime ($unit)",
             xscale = :log10,
             marker = true,
@@ -107,9 +106,73 @@ function plot_runtimes(
 end
 
 
+function plot_size_runtime(classifier, collected_data, unit = :s; csv = nothing, kwargs...)
+    # The `classifier` is a function that returns either :high or :low for a
+    # given row.
+    keys = (:high, :low)
+    plot_data = Dict(
+        key => Dict(
+            :N => Int64[],
+            :runtime_min => Float64[],
+            :runtime_max => Float64[],
+            :runtime_median => Float64[],
+        ) for key in keys
+    )
+    for row in collected_data
+        key = classifier(row)
+        @assert key ∈ keys
+        push!(plot_data[key][:N], row[:N])
+        push!(
+            plot_data[key][:runtime_min],
+            minimum(row[:propagate].times * Units.eval(:ns))
+        )
+        push!(
+            plot_data[key][:runtime_max],
+            maximum(row[:propagate].times * Units.eval(:ns))
+        )
+        push!(
+            plot_data[key][:runtime_median],
+            median(row[:propagate].times * Units.eval(:ns))
+        )
+    end
+    fig = plot(; xlabel = "system size", ylabel = "runtime ($unit)")
+    u = Units.eval(unit)
+    for key in keys
+        x_vals = plot_data[key][:N]
+        y_median = plot_data[key][:runtime_median] / u
+        y_mindist = y_median - plot_data[key][:runtime_min] / u
+        y_maxdist = plot_data[key][:runtime_max] / Units.eval(unit) - y_median
+        plot!(
+            fig,
+            x_vals,
+            y_median;
+            yerror = (y_mindist, y_maxdist),
+            label = "$key precision",
+            marker = true,
+        )
+        if !isnothing(csv)
+            @assert contains(csv, "{highlow}")
+            csvfile = replace(csv, "{highlow}" => string(highlow))
+            write_csv(
+                csvfile,
+                OrderedDict(
+                    "precision" => x_vals,
+                    "min runtime ($unit)" => plot_data[N][:runtime_min] / u,
+                    "max runtime ($unit)" => plot_data[N][:runtime_max] / u,
+                    "median runtime ($unit)" => y_median,
+                )
+            )
+            @info "Written $csvfile"
+        end
+    end
+    ymax = ylims(fig)[end]
+    plot!(fig; ylims = [0, ymax], kwargs...)
+end
 
 
 function plot_scaling(classifier, scaling_data; csv = nothing, kwargs...)
+    # The `classifier` is a function that returns either :high or :low for a
+    # given row.
     plot_data = Dict(
         :high => Dict(:mvp_per_timestep => Float64[], :spectral_envelope => Float64[]),
         :low => Dict(:mvp_per_timestep => Float64[], :spectral_envelope => Float64[]),

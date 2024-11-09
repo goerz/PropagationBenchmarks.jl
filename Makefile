@@ -34,4 +34,4 @@ clean: ## Remove generated files
 distclean: clean ## Restore clean repository state
 	rm -rf .ipynb_checkpoints
 	rm -rf data/*
-	rm Manifest.toml
+	rm -f Manifest.toml

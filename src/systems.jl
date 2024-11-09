@@ -63,3 +63,6 @@ propagates the given [`BenchmarkSystem`](@ref) using
 function generate_exact_solution(system::BenchmarkSystem; kwargs...)
     return propagate(system.initial_state, system.generator, system.tlist; kwargs...)
 end
+
+"""Do not generate an exact solutions"""
+do_not_use_exact_solution(args...; kwargs...) = nothing
